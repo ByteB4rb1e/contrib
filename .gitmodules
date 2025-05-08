@@ -1,0 +1,8 @@
+[submodule "pypa/pip"]
+	path = ongoing/pypa/pip
+	url = git@github.com:ByteB4rb1e/pip.git
+	branch = feature/13329
+[submodule "ongoing/mochajs/mocha"]
+	path = ongoing/mochajs/mocha
+	url = git@github.com:ByteB4rb1e/mocha.git
+	branch = feature/5049
