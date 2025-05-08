@@ -1,0 +1,351 @@
+From 15ec494e3cdfa1dc558bfcc1506ab288815c5c55 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 10 Apr 2025 20:46:31 +0200
+Subject: [PATCH 1/6] feat: init sysconfig scripts path lookup
+
+Reutilizing the mechanism of sysconfig install (path) schemes for determining
+the path of the scripts/ directory. This allows for determining the scripts/
+path without requiring logic dependent on platform identifiers and mitigates
+issues when being executed from within Cygwin/MinGW environments, as they
+provide a POSIX(-ish) interface therefore resulting in non-native Windows
+environment behavior.
+
+Fixes: https://github.com/pypa/pipenv/issues/5978
+---
+ pipenv/utils/virtualenv.py | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/pipenv/utils/virtualenv.py b/pipenv/utils/virtualenv.py
+index b5a9c6a6..c7be3f46 100644
+--- a/pipenv/utils/virtualenv.py
++++ b/pipenv/utils/virtualenv.py
+@@ -3,6 +3,7 @@ import os
+ import re
+ import shutil
+ import sys
++import sysconfig
+ from pathlib import Path
+ 
+ from pipenv import environments, exceptions
+@@ -13,6 +14,20 @@ from pipenv.utils.processes import subprocess_run
+ from pipenv.utils.shell import find_python, shorten_path
+ 
+ 
++def virtualenv_scripts_dir(b):
++    """returns a system-dependent scripts path
++
++    POSIX environments (including Cygwin/MinGW64) will result in
++    `{base}/bin/`, native Windows environments will result in
++    `{base}/Scripts/`.
++
++    :param b: base path
++    :type b: str
++    :returns: pathlib.Path
++    """
++    return Path(f"{b}/{Path(sysconfig.get_path('scripts')).name}")
++
++
+ def warn_in_virtualenv(project):
+     # Only warn if pipenv isn't already active.
+     if environments.is_in_virtualenv() and not project.s.is_quiet():
+-- 
+2.47.1
+
+
+From 5b964c10e2be7059eb3341e8260fe4969645d628 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 10 Apr 2025 20:51:46 +0200
+Subject: [PATCH 2/6] refactor(project): set up dynamic scripts location lookup
+
+Removed custom logic for determining the scripts/ location, in favor of using
+the virtualenv mechanism.
+
+Fixes: https://github.com/pypa/pipenv/issues/5978
+---
+ pipenv/project.py | 31 +++++++++++++++++++++++--------
+ 1 file changed, 23 insertions(+), 8 deletions(-)
+
+diff --git a/pipenv/project.py b/pipenv/project.py
+index a256b842..dd2c3c04 100644
+--- a/pipenv/project.py
++++ b/pipenv/project.py
+@@ -69,6 +69,7 @@ from pipenv.utils.shell import (
+     system_which,
+ )
+ from pipenv.utils.toml import cleanup_toml, convert_toml_outline_tables
++from pipenv.utils.virtualenv import virtualenv_scripts_dir
+ from pipenv.vendor import plette, tomlkit
+ 
+ try:
+@@ -411,11 +412,19 @@ class Project:
+     @property
+     def virtualenv_exists(self) -> bool:
+         venv_path = Path(self.virtualenv_location)
++
++        scripts_dir = self.virtualenv_scripts_location
++
+         if venv_path.exists():
+-            if os.name == "nt":
+-                activate_path = venv_path / "Scripts" / "activate.bat"
++
++            # existence of active.bat is dependent on the platform path prefix
++            # scheme, not platform itself. This handles special cases such as
++            # Cygwin/MinGW identifying as 'nt' platform, yet preferring a
++            # 'posix' path prefix scheme.
++            if scripts_dir.name == "Scripts":
++                activate_path = scripts_dir / "activate.bat"
+             else:
+-                activate_path = venv_path / "bin" / "activate"
++                activate_path = scripts_dir / "activate"
+             return activate_path.is_file()
+ 
+         return False
+@@ -612,6 +621,10 @@ class Project:
+         loc.mkdir(parents=True, exist_ok=True)
+         return loc
+ 
++    @property
++    def virtualenv_scripts_location(self) -> Path:
++        return virtualenv_scripts_dir(self.virtualenv_location)
++
+     @property
+     def download_location(self) -> Path:
+         if self._download_location is None:
+@@ -1422,10 +1435,10 @@ class Project:
+     def finders(self):
+         from .vendor.pythonfinder import Finder
+ 
+-        scripts_dirname = "Scripts" if os.name == "nt" else "bin"
+-        scripts_dir = Path(self.virtualenv_location) / scripts_dirname
+         finders = [
+-            Finder(path=str(scripts_dir), global_search=gs, system=False)
++            Finder(
++                path=str(self.virtualenv_scripts_location), global_search=gs, system=False
++            )
+             for gs in (False, True)
+         ]
+         return finders
+@@ -1463,12 +1476,14 @@ class Project:
+         is_python = command in ("python", Path(sys.executable).name, version_str)
+ 
+         if not allow_global:
++            scripts_location = virtualenv_scripts_dir(location_path)
++
+             if os.name == "nt":
+-                p = find_windows_executable(str(location_path / "Scripts"), command)
++                p = find_windows_executable(str(scripts_location), command)
+                 # Convert to Path object if it's a string
+                 p = Path(p) if isinstance(p, str) else p
+             else:
+-                p = location_path / "bin" / command
++                p = scripts_location / command
+         elif is_python:
+             p = Path(sys.executable)
+         else:
+-- 
+2.47.1
+
+
+From f4c9ba6f3e7f3e32612d92b4b83f9677a66ecd3c Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 10 Apr 2025 20:56:27 +0200
+Subject: [PATCH 3/6] refactor(routines): set up dynamic scripts location
+ lookup
+
+Removed custom logic for determining the scripts/ location, in favor of using
+the virtualenv mechanism.
+
+Fixes: https://github.com/pypa/pipenv/issues/5978
+---
+ pipenv/routines/shell.py | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/pipenv/routines/shell.py b/pipenv/routines/shell.py
+index 268f079d..c33fe8e9 100644
+--- a/pipenv/routines/shell.py
++++ b/pipenv/routines/shell.py
+@@ -5,6 +5,7 @@ from os.path import expandvars
+ 
+ from pipenv.utils.project import ensure_project
+ from pipenv.utils.shell import cmd_list_to_shell, system_which
++from pipenv.utils.virtualenv import virtualenv_scripts_dir
+ from pipenv.vendor import click
+ 
+ 
+@@ -60,7 +61,6 @@ def do_run(project, command, args, python=False, pypi_mirror=None):
+ 
+     Args are appended to the command in [scripts] section of project if found.
+     """
+-    from pathlib import Path
+ 
+     from pipenv.cmdparse import ScriptEmptyError
+ 
+@@ -79,12 +79,7 @@ def do_run(project, command, args, python=False, pypi_mirror=None):
+         # Get the exact string representation of virtualenv_location
+         virtualenv_location = str(project.virtualenv_location)
+ 
+-        # Use pathlib for path construction but convert back to string
+-        from pathlib import Path
+-
+-        virtualenv_path = Path(virtualenv_location)
+-        bin_dir = "Scripts" if os.name == "nt" else "bin"
+-        new_path = str(virtualenv_path / bin_dir)
++        new_path = str(virtualenv_scripts_dir(virtualenv_location))
+ 
+         # Update PATH
+         paths = path.split(os.pathsep)
+-- 
+2.47.1
+
+
+From a80b7d1dfecbcc5626af55b6dfb202a2ee007e76 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Tue, 15 Apr 2025 20:55:22 +0200
+Subject: [PATCH 4/6] test(utils): add test for virtualenv scripts dir
+
+Test that path are correctly returned on each platform. Added a skipif
+conditional to correctly execute the test cases with MSYS2 MinGW CPython as
+well.
+---
+ tests/unit/test_utils.py | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/tests/unit/test_utils.py b/tests/unit/test_utils.py
+index 337b1816..9788c474 100644
+--- a/tests/unit/test_utils.py
++++ b/tests/unit/test_utils.py
+@@ -1,10 +1,11 @@
+ import os
++import sys
+ from unittest import mock
+ 
+ import pytest
+ 
+ from pipenv.exceptions import PipenvUsageError
+-from pipenv.utils import dependencies, indexes, internet, shell, toml
++from pipenv.utils import dependencies, indexes, internet, shell, toml, virtualenv
+ 
+ # Pipfile format <-> requirements.txt format.
+ DEP_PIP_PAIRS = [
+@@ -547,3 +548,17 @@ twine = "*"
+         name = "ZZZ"
+         monkeypatch.delenv(name, raising=False)
+         assert shell.is_env_truthy(name) is False
++
++    @pytest.mark.utils
++    # substring search in version handles special-case of MSYS2 MinGW CPython
++    # https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-python/0017-sysconfig-treat-MINGW-builds-as-POSIX-builds.patch#L24
++    @pytest.mark.skipif(os.name != "nt" or "GCC" in sys.version, reason="Windows test only")
++    def test_virtualenv_scripts_dir_nt(self):
++        """
++        """
++        assert str(virtualenv.virtualenv_scripts_dir('foobar')) == 'foobar\\Scripts'
++
++    @pytest.mark.utils
++    @pytest.mark.skipif(os.name == "nt" and "GCC" not in sys.version, reason="POSIX test only")
++    def test_virtualenv_scripts_dir_posix(self):
++        assert str(virtualenv.virtualenv_scripts_dir('foobar')) == 'foobar/bin'
+-- 
+2.47.1
+
+
+From 3babe0ac1c9374fc9591cc0fcc75f4b28da4abae Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 16 Apr 2025 18:32:44 +0200
+Subject: [PATCH 5/6] chore(news): add fragment for PR 6737
+
+---
+ news/6737.bugfix.rst | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+ create mode 100644 news/6737.bugfix.rst
+
+diff --git a/news/6737.bugfix.rst b/news/6737.bugfix.rst
+new file mode 100644
+index 00000000..f17f6222
+--- /dev/null
++++ b/news/6737.bugfix.rst
+@@ -0,0 +1,22 @@
++# Improved virtualenv scripts path resolution
++
++## Summary
++
++This PR refactors the logic for determining virtual environment script paths
++by leveraging ``sysconfig``'s built-in mechanisms. By removing
++platform-dependent logic, ``pipenv`` now offers enhanced compatibility with
++POSIX-like environments, including Cygwin and MinGW. The fix also mitigates
++execution inconsistencies in non-native Windows environments, improving
++portability across platforms.
++
++## Motivation
++
++The original logic for determining the scripts path was unable to handle the
++deviations of MSYS2 MinGW CPython identifying as ``nt`` platform, yet using a
++POSIX ``{base}/bin`` path, instead of ``{base}/Scripts``.
++
++## Changes
++
++Removed custom logic for determining virtualenv scripts path in favor of
++retrieving the basename of the path string returned by
++``sysconfig.get_path('scripts')```.
+-- 
+2.47.1
+
+
+From 74e6f63db4fea1d396de5d82c18f7e32abf8c212 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 16 Apr 2025 20:13:34 +0200
+Subject: [PATCH 6/6] fix(environment): update python executable lookup
+
+This fix resolves a faulty path on MSYS2 MinGW CPython, where the bin/ segment
+is missing altogether. This is required by the uninstall routine. It also
+simplifies the lookup on all other platforms.
+
+As far as I comprehended, the condition in line 255 would never be met, as the
+joinpath('python') in line 254 guarantees that py will never become a
+false-equivalent value, since its definition is in the else statement, hence
+catches the unmatched condition in line 251.
+
+I've also inverted the condition of checking for self._python, so that an
+intermediate assignment to `py` is no longer required.
+---
+ pipenv/environment.py | 17 +++++++----------
+ 1 file changed, 7 insertions(+), 10 deletions(-)
+
+diff --git a/pipenv/environment.py b/pipenv/environment.py
+index 71009d50..5b6964d3 100644
+--- a/pipenv/environment.py
++++ b/pipenv/environment.py
+@@ -26,6 +26,7 @@ from pipenv.utils.funktools import chunked, unnest
+ from pipenv.utils.indexes import prepare_pip_source_args
+ from pipenv.utils.processes import subprocess_run
+ from pipenv.utils.shell import temp_environ
++from pipenv.utils.virtualenv import virtualenv_scripts_dir
+ from pipenv.vendor.importlib_metadata.compat.py39 import normalized_name
+ from pipenv.vendor.pythonfinder.utils import is_in_path
+ 
+@@ -246,16 +247,12 @@ class Environment:
+     @property
+     def python(self) -> str:
+         """Path to the environment python"""
+-        if self._python is not None:
+-            return self._python
+-        if os.name == "nt" and not self.is_venv:
+-            py = Path(self.prefix).joinpath("python").absolute().as_posix()
+-        else:
+-            py = Path(self.script_basedir).joinpath("python").absolute().as_posix()
+-        if not py:
+-            py = Path(sys.executable).as_posix()
+-        self._python = py
+-        return py
++        if self._python is None:
++            self._python = (
++                (virtualenv_scripts_dir(self.prefix) / "python").absolute().as_posix()
++            )
++
++        return self._python
+ 
+     @cached_property
+     def sys_path(self) -> list[str]:
+-- 
+2.47.1
+
