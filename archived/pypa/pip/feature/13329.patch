@@ -1,0 +1,1259 @@
+From e6db004b62bac502374101c81ef866c6a36c2d54 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Micha=C5=82=20G=C3=B3rny?= <mgorny@gentoo.org>
+Date: Wed, 7 May 2025 01:42:27 +0200
+Subject: [PATCH 01/18] Mark more tests as requiring network (#13378)
+
+Apply the network marker to more tests that attempt to install packages
+from PyPI and other online sources, and therefore fail without Internet
+access.
+
+To reproduce:
+
+    nox -e test-3.13
+    sudo unshare -n sh -c "ifconfig lo up && sudo -u $USER sh -c \". .nox/test-3-13/bin/activate && pytest -n auto -m 'not network'\""
+---
+ news/13378.bugfix.rst                    | 2 ++
+ tests/functional/test_config_settings.py | 3 +++
+ tests/functional/test_install.py         | 2 ++
+ tests/functional/test_install_config.py  | 1 +
+ tests/functional/test_lock.py            | 4 ++++
+ 5 files changed, 12 insertions(+)
+ create mode 100644 news/13378.bugfix.rst
+
+diff --git a/news/13378.bugfix.rst b/news/13378.bugfix.rst
+new file mode 100644
+index 000000000..123dae3f9
+--- /dev/null
++++ b/news/13378.bugfix.rst
+@@ -0,0 +1,2 @@
++Fix missing ``network`` test markings, making the suite pass in offline
++environments again.
+diff --git a/tests/functional/test_config_settings.py b/tests/functional/test_config_settings.py
+index 124430128..87de5fcc4 100644
+--- a/tests/functional/test_config_settings.py
++++ b/tests/functional/test_config_settings.py
+@@ -5,6 +5,8 @@ import tarfile
+ from pathlib import Path
+ from zipfile import ZipFile
+ 
++import pytest
++
+ from pip._internal.utils.urls import path_to_url
+ 
+ from tests.lib import PipTestEnvironment, create_basic_sdist_for_package
+@@ -180,6 +182,7 @@ def test_backend_sees_config_via_constraint(script: PipTestEnvironment) -> None:
+             assert json.loads(output) == {"FOO": "Hello"}
+ 
+ 
++@pytest.mark.network
+ def test_backend_sees_config_via_sdist(script: PipTestEnvironment) -> None:
+     name, version, project_dir = make_project(script.scratch_path)
+     dists_dir = script.scratch_path / "dists"
+diff --git a/tests/functional/test_install.py b/tests/functional/test_install.py
+index db24f69d6..51134430f 100644
+--- a/tests/functional/test_install.py
++++ b/tests/functional/test_install.py
+@@ -1919,6 +1919,7 @@ def test_double_install(script: PipTestEnvironment) -> None:
+     assert msg not in result.stderr
+ 
+ 
++@pytest.mark.network
+ def test_double_install_fail(
+     script: PipTestEnvironment, resolver_variant: ResolverVariant
+ ) -> None:
+@@ -2679,6 +2680,7 @@ def test_install_pip_prints_req_chain_pypi(script: PipTestEnvironment) -> None:
+ 
+ 
+ @pytest.mark.parametrize("common_prefix", ["", "linktest-1.0/"])
++@pytest.mark.network
+ def test_install_sdist_links(script: PipTestEnvironment, common_prefix: str) -> None:
+     """
+     Test installing an sdist with hard and symbolic links.
+diff --git a/tests/functional/test_install_config.py b/tests/functional/test_install_config.py
+index 8a213954c..29606075a 100644
+--- a/tests/functional/test_install_config.py
++++ b/tests/functional/test_install_config.py
+@@ -417,6 +417,7 @@ def flags(
+     return flags
+ 
+ 
++@pytest.mark.network
+ def test_prompt_for_keyring_if_needed(
+     data: TestData,
+     cert_factory: CertFactory,
+diff --git a/tests/functional/test_lock.py b/tests/functional/test_lock.py
+index b99850526..727bd72c8 100644
+--- a/tests/functional/test_lock.py
++++ b/tests/functional/test_lock.py
+@@ -1,6 +1,8 @@
+ import textwrap
+ from pathlib import Path
+ 
++import pytest
++
+ from pip._internal.utils.compat import tomllib
+ from pip._internal.utils.urls import path_to_url
+ 
+@@ -181,6 +183,7 @@ def test_lock_local_editable_with_dep(
+     ]
+ 
+ 
++@pytest.mark.network
+ def test_lock_vcs(script: PipTestEnvironment, shared_data: TestData) -> None:
+     result = script.pip(
+         "lock",
+@@ -205,6 +208,7 @@ def test_lock_vcs(script: PipTestEnvironment, shared_data: TestData) -> None:
+     ]
+ 
+ 
++@pytest.mark.network
+ def test_lock_archive(script: PipTestEnvironment, shared_data: TestData) -> None:
+     result = script.pip(
+         "lock",
+-- 
+2.47.1
+
+
+From 83751168a7e9a433c42e923804c17c91a370f526 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Tue, 29 Apr 2025 22:58:52 +0200
+Subject: [PATCH 02/18] feat(vcs/git): add verbosity argument for Git submodule
+ command
+
+The verbosity argument enables callers to control the supression of command
+output emitted by the Git submodule command. This is helpful for situations
+where the Git command call may take a long time, such as with many submodules
+registered in a repository, or a slow internet connection.
+
+The `verbosity` argument has, different than some of its caller methods, a
+boolean type for verbosity, as the options for verbosity are binary.  Verbosity
+can only be supressed via the `--quiet` flag of the `git submodule update`
+command.
+
+Implements: https://github.com/pypa/pip/issues/13329
+---
+ src/pip/_internal/vcs/git.py | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/pip/_internal/vcs/git.py b/src/pip/_internal/vcs/git.py
+index f25249307..ce11cbd1a 100644
+--- a/src/pip/_internal/vcs/git.py
++++ b/src/pip/_internal/vcs/git.py
+@@ -496,11 +496,16 @@ class Git(VersionControl):
+         return url, rev, user_pass
+ 
+     @classmethod
+-    def update_submodules(cls, location: str) -> None:
++    def update_submodules(cls, location: str, verbosity: int = 0) -> None:
++        argv = ["submodule", "update", "--init", "--recursive"]
++
++        if verbosity <= 0:
++            argv.append("-q")
++
+         if not os.path.exists(os.path.join(location, ".gitmodules")):
+             return
+         cls.run_command(
+-            ["submodule", "update", "--init", "--recursive", "-q"],
++            argv,
+             cwd=location,
+         )
+ 
+-- 
+2.47.1
+
+
+From 505ee1096df2e9895ee42ff3c5951488f1ded6f7 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Tue, 29 Apr 2025 23:13:47 +0200
+Subject: [PATCH 03/18] feat(vcs/git): cascade verbosity for cloning
+
+Since the method signature already provides an argument for controlling
+verbosity, it is now passed down to the `update_submodules` callee.
+
+Implements: https://github.com/pypa/pip/issues/13329
+---
+ src/pip/_internal/vcs/git.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/pip/_internal/vcs/git.py b/src/pip/_internal/vcs/git.py
+index ce11cbd1a..74a263f17 100644
+--- a/src/pip/_internal/vcs/git.py
++++ b/src/pip/_internal/vcs/git.py
+@@ -331,7 +331,7 @@ class Git(VersionControl):
+         logger.info("Resolved %s to commit %s", url, rev_options.rev)
+ 
+         #: repo may contain submodules
+-        self.update_submodules(dest)
++        self.update_submodules(dest, verbosity=verbosity)
+ 
+     def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
+         self.run_command(
+-- 
+2.47.1
+
+
+From 9793ce9f4981cec87891137378b473a765000678 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 7 May 2025 22:10:07 +0200
+Subject: [PATCH 04/18] test(vcs/bazaar): init args skeleton + fixture
+
+---
+ tests/unit/test_vcs.py | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index dc38b2040..c1cbaa967 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -763,6 +763,24 @@ def test_subversion__get_remote_call_options(
+     assert svn.get_remote_call_options() == expected_options
+ 
+ 
++class TestBazaarArgs(TestCase):
++    def setUp(self) -> None:
++        patcher = mock.patch("pip._internal.vcs.versioncontrol.call_subprocess")
++        self.addCleanup(patcher.stop)
++        self.call_subprocess_mock = patcher.start()
++
++        # Test Data.
++        self.url = "bzr+http://username:password@bzr.example.com/"
++        # use_interactive is set to False to test that remote call options are
++        # properly added.
++        self.svn = Bazaar()
++        self.rev_options = RevOptions(Bazaar)
++        self.dest = "/tmp/test"
++
++    def assert_call_args(self, args: CommandArgs) -> None:
++        assert self.call_subprocess_mock.call_args[0][0] == args
++
++
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+         patcher = mock.patch("pip._internal.vcs.versioncontrol.call_subprocess")
+-- 
+2.47.1
+
+
+From 630b21c83a740c7e5be417e95177e11e14fccbd6 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 7 May 2025 22:30:37 +0200
+Subject: [PATCH 05/18] test(vcs/bazaar): init fetch_new
+
+---
+ tests/unit/test_vcs.py | 38 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 38 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index c1cbaa967..904afcfaa 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -780,6 +780,44 @@ class TestBazaarArgs(TestCase):
+     def assert_call_args(self, args: CommandArgs) -> None:
+         assert self.call_subprocess_mock.call_args[0][0] == args
+ 
++    def test_fetch_new(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=1)
++        self.assert_call_args(
++            [
++                "bzr",
++                "checkout",
++                "--lightweight",
++                hide_url("bzr+http://username:password@bzr.example.com/"),
++                "/tmp/test",
++            ]
++        )
++
++    def test_fetch_new_quiet(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=0)
++        self.assert_call_args(
++            [
++                "bzr",
++                "checkout",
++                "--lightweight",
++                "--quiet",
++                hide_url("bzr+http://username:password@bzr.example.com/"),
++                "/tmp/test",
++            ]
++        )
++
++    def test_fetch_new_very_verbose(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=2)
++        self.assert_call_args(
++            [
++                "bzr",
++                "checkout",
++                "--lightweight",
++                "-vv",
++                hide_url("bzr+http://username:password@bzr.example.com/"),
++                "/tmp/test",
++            ]
++        )
++
+ 
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+-- 
+2.47.1
+
+
+From 77a8cd5b070e18b7d8c91e32579f8318f59a8c01 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 7 May 2025 22:35:35 +0200
+Subject: [PATCH 06/18] test(vcs/git): init args skeleton + fixture
+
+---
+ tests/unit/test_vcs.py | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 904afcfaa..4d3969ee5 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -819,6 +819,19 @@ class TestBazaarArgs(TestCase):
+         )
+ 
+ 
++class TestGitArgs(TestCase):
++    def setUp(self) -> None:
++        patcher = mock.patch("pip._internal.vcs.versioncontrol.call_subprocess")
++        self.addCleanup(patcher.stop)
++        self.call_subprocess_mock = patcher.start()
++
++        # Test Data.
++        self.url = "git+http://username:password@git.example.com/"
++        self.svn = Git()
++        self.rev_options = RevOptions(Git)
++        self.dest = "/tmp/test"
++
++
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+         patcher = mock.patch("pip._internal.vcs.versioncontrol.call_subprocess")
+-- 
+2.47.1
+
+
+From 26cc5c86449f6717453b7666bf5d0726095c2b32 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 7 May 2025 23:50:30 +0200
+Subject: [PATCH 07/18] test(vcs/git): init fetch_new args
+
+---
+ tests/unit/test_vcs.py | 76 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 76 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 4d3969ee5..15d9375fc 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -831,6 +831,82 @@ class TestGitArgs(TestCase):
+         self.rev_options = RevOptions(Git)
+         self.dest = "/tmp/test"
+ 
++    def test_fetch_new(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(2, 17)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.fetch_new(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=1
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "clone",
++            "--filter=blob:none",
++            hide_url("git+http://username:password@git.example.com/"),
++            "/tmp/test",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=1)
++
++    def test_fetch_new_legacy(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(1, 0)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.fetch_new(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=1
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "clone",
++            hide_url("git+http://username:password@git.example.com/"),
++            "/tmp/test",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=1)
++
++    def test_fetch_new_legacy_quiet(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(1, 0)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.fetch_new(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=0
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "clone",
++            "--quiet",
++            hide_url("git+http://username:password@git.example.com/"),
++            "/tmp/test",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=0)
++
++    def test_fetch_new_quiet(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(2, 17)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.fetch_new(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=0
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "clone",
++            "--filter=blob:none",
++            "--quiet",
++            hide_url("git+http://username:password@git.example.com/"),
++            "/tmp/test",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=0)
++
+ 
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+-- 
+2.47.1
+
+
+From 452f05e46439035b57f3540cfc92b49ccddebabb Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 7 May 2025 23:53:59 +0200
+Subject: [PATCH 08/18] test(vcs/mercurial): init args skeleton + fixture
+
+---
+ tests/unit/test_vcs.py | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 15d9375fc..9890f70e0 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -908,6 +908,19 @@ class TestGitArgs(TestCase):
+         update_submodules_mock.assert_called_with(self.dest, verbosity=0)
+ 
+ 
++class TestMercurialArgs(TestCase):
++    def setUp(self) -> None:
++        patcher = mock.patch("pip._internal.vcs.versioncontrol.call_subprocess")
++        self.addCleanup(patcher.stop)
++        self.call_subprocess_mock = patcher.start()
++
++        # Test Data.
++        self.url = "hg+http://username:password@hg.example.com/"
++        self.svn = Mercurial()
++        self.rev_options = RevOptions(Mercurial)
++        self.dest = "/tmp/test"
++
++
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+         patcher = mock.patch("pip._internal.vcs.versioncontrol.call_subprocess")
+-- 
+2.47.1
+
+
+From 8e7b496ed9ed69bce4181944c1395e9941eb989e Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 8 May 2025 00:02:32 +0200
+Subject: [PATCH 09/18] test(vcs/mercurial): init fetch_new args
+
+---
+ tests/unit/test_vcs.py | 72 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 72 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 9890f70e0..f45adbdba 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -920,6 +920,78 @@ class TestMercurialArgs(TestCase):
+         self.rev_options = RevOptions(Mercurial)
+         self.dest = "/tmp/test"
+ 
++    def test_fetch_new(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=1)
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "hg",
++            "clone",
++            "--noupdate",
++            hide_url("hg+http://username:password@hg.example.com/"),
++            "/tmp/test",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "hg",
++            "update",
++        ]
++
++    def test_fetch_new_quiet(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=0)
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "hg",
++            "clone",
++            "--noupdate",
++            "--quiet",
++            hide_url("hg+http://username:password@hg.example.com/"),
++            "/tmp/test",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "hg",
++            "update",
++            "--quiet",
++        ]
++
++    def test_fetch_new_very_verbose(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=2)
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "hg",
++            "clone",
++            "--noupdate",
++            "--verbose",
++            hide_url("hg+http://username:password@hg.example.com/"),
++            "/tmp/test",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "hg",
++            "update",
++            "--verbose",
++        ]
++
++    def test_fetch_new_debug(self) -> None:
++        self.svn.fetch_new(self.dest, hide_url(self.url), self.rev_options, verbosity=3)
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "hg",
++            "clone",
++            "--noupdate",
++            "--verbose",
++            "--debug",
++            hide_url("hg+http://username:password@hg.example.com/"),
++            "/tmp/test",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "hg",
++            "update",
++            "--verbose",
++            "--debug",
++        ]
++
+ 
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+-- 
+2.47.1
+
+
+From 2570161f15b2c998261adb39684b4e6a9451a8ad Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Tue, 29 Apr 2025 23:24:45 +0200
+Subject: [PATCH 10/18] feat(vcs): add verbosity argument to update
+
+verbosity argument to the update method allows for controlling the supression of
+output executed from this method. The argument should be a
+boolean value as the `-q` flag is binary, but it now is of type int as
+to not require a refactor of the base class callers.
+
+Implements: https://github.com/pypa/pip/issues/13329
+---
+ src/pip/_internal/vcs/bazaar.py         | 17 ++++++++++++++---
+ src/pip/_internal/vcs/git.py            | 24 ++++++++++++++++++++----
+ src/pip/_internal/vcs/mercurial.py      | 17 ++++++++++++++---
+ src/pip/_internal/vcs/subversion.py     |  8 +++++++-
+ src/pip/_internal/vcs/versioncontrol.py |  8 +++++++-
+ 5 files changed, 62 insertions(+), 12 deletions(-)
+
+diff --git a/src/pip/_internal/vcs/bazaar.py b/src/pip/_internal/vcs/bazaar.py
+index c0fd26e03..700cc686b 100644
+--- a/src/pip/_internal/vcs/bazaar.py
++++ b/src/pip/_internal/vcs/bazaar.py
+@@ -58,17 +58,28 @@ class Bazaar(VersionControl):
+     def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
+         self.run_command(make_command("switch", url), cwd=dest)
+ 
+-    def update(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def update(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
++        flags = []
++
++        if verbosity <= 0:
++            flags.append("-q")
++
+         output = self.run_command(
+             make_command("info"), show_stdout=False, stdout_only=True, cwd=dest
+         )
+         if output.startswith("Standalone "):
+             # Older versions of pip used to create standalone branches.
+             # Convert the standalone branch to a checkout by calling "bzr bind".
+-            cmd_args = make_command("bind", "-q", url)
++            cmd_args = make_command("bind", *flags, url)
+             self.run_command(cmd_args, cwd=dest)
+ 
+-        cmd_args = make_command("update", "-q", rev_options.to_args())
++        cmd_args = make_command("update", *flags, rev_options.to_args())
+         self.run_command(cmd_args, cwd=dest)
+ 
+     @classmethod
+diff --git a/src/pip/_internal/vcs/git.py b/src/pip/_internal/vcs/git.py
+index 74a263f17..c89e30571 100644
+--- a/src/pip/_internal/vcs/git.py
++++ b/src/pip/_internal/vcs/git.py
+@@ -343,16 +343,32 @@ class Git(VersionControl):
+ 
+         self.update_submodules(dest)
+ 
+-    def update(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def update(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
++        extra_flags = []
++
++        if verbosity <= 0:
++            extra_flags.append("-q")
++
+         # First fetch changes from the default remote
+         if self.get_git_version() >= (1, 9):
+             # fetch tags in addition to everything else
+-            self.run_command(["fetch", "-q", "--tags"], cwd=dest)
++            self.run_command(["fetch", "--tags", *extra_flags], cwd=dest)
+         else:
+-            self.run_command(["fetch", "-q"], cwd=dest)
++            self.run_command(["fetch", *extra_flags], cwd=dest)
+         # Then reset to wanted revision (maybe even origin/master)
+         rev_options = self.resolve_revision(dest, url, rev_options)
+-        cmd_args = make_command("reset", "--hard", "-q", rev_options.to_args())
++        cmd_args = make_command(
++            "reset",
++            "--hard",
++            *extra_flags,
++            rev_options.to_args(),
++        )
+         self.run_command(cmd_args, cwd=dest)
+         #: update submodules
+         self.update_submodules(dest)
+diff --git a/src/pip/_internal/vcs/mercurial.py b/src/pip/_internal/vcs/mercurial.py
+index 6d779837b..d1c1b70af 100644
+--- a/src/pip/_internal/vcs/mercurial.py
++++ b/src/pip/_internal/vcs/mercurial.py
+@@ -72,9 +72,20 @@ class Mercurial(VersionControl):
+             cmd_args = make_command("update", "-q", rev_options.to_args())
+             self.run_command(cmd_args, cwd=dest)
+ 
+-    def update(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
+-        self.run_command(["pull", "-q"], cwd=dest)
+-        cmd_args = make_command("update", "-q", rev_options.to_args())
++    def update(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
++        extra_flags = []
++
++        if verbosity <= 0:
++            extra_flags.append("-q")
++
++        self.run_command(["pull", *extra_flags], cwd=dest)
++        cmd_args = make_command("update", *extra_flags, rev_options.to_args())
+         self.run_command(cmd_args, cwd=dest)
+ 
+     @classmethod
+diff --git a/src/pip/_internal/vcs/subversion.py b/src/pip/_internal/vcs/subversion.py
+index 3679a17ac..7a7c557b8 100644
+--- a/src/pip/_internal/vcs/subversion.py
++++ b/src/pip/_internal/vcs/subversion.py
+@@ -310,7 +310,13 @@ class Subversion(VersionControl):
+         )
+         self.run_command(cmd_args)
+ 
+-    def update(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def update(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
+         cmd_args = make_command(
+             "update",
+             self.get_remote_call_options(),
+diff --git a/src/pip/_internal/vcs/versioncontrol.py b/src/pip/_internal/vcs/versioncontrol.py
+index 189da2197..1c4be6d98 100644
+--- a/src/pip/_internal/vcs/versioncontrol.py
++++ b/src/pip/_internal/vcs/versioncontrol.py
+@@ -460,7 +460,13 @@ class VersionControl:
+         """
+         raise NotImplementedError
+ 
+-    def update(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def update(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
+         """
+         Update an already-existing repo to the given ``rev_options``.
+ 
+-- 
+2.47.1
+
+
+From 24c99626a92d8440279a20958884efff06c7ab68 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 30 Apr 2025 00:41:45 +0200
+Subject: [PATCH 11/18] feat(vcs): cascade verbosity for updating
+
+verbosity argument passed down to update_submodules callee, so that the
+supression of command outputs is properly cascaded.
+
+Implements: https://github.com/pypa/pip/issues/13329
+---
+ src/pip/_internal/vcs/git.py            | 2 +-
+ src/pip/_internal/vcs/versioncontrol.py | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/pip/_internal/vcs/git.py b/src/pip/_internal/vcs/git.py
+index c89e30571..880042a70 100644
+--- a/src/pip/_internal/vcs/git.py
++++ b/src/pip/_internal/vcs/git.py
+@@ -371,7 +371,7 @@ class Git(VersionControl):
+         )
+         self.run_command(cmd_args, cwd=dest)
+         #: update submodules
+-        self.update_submodules(dest)
++        self.update_submodules(dest, verbosity=verbosity)
+ 
+     @classmethod
+     def get_remote_url(cls, location: str) -> str:
+diff --git a/src/pip/_internal/vcs/versioncontrol.py b/src/pip/_internal/vcs/versioncontrol.py
+index 1c4be6d98..9ced9924b 100644
+--- a/src/pip/_internal/vcs/versioncontrol.py
++++ b/src/pip/_internal/vcs/versioncontrol.py
+@@ -518,7 +518,7 @@ class VersionControl:
+                         self.repo_name,
+                         rev_display,
+                     )
+-                    self.update(dest, url, rev_options)
++                    self.update(dest, url, rev_options, verbosity=verbosity)
+                 else:
+                     logger.info("Skipping because already up-to-date.")
+                 return
+-- 
+2.47.1
+
+
+From b8c8e4aa5880997151becd4017fff270316bd175 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 8 May 2025 00:23:11 +0200
+Subject: [PATCH 12/18] test(vcs/bazaar): init update args
+
+---
+ tests/unit/test_vcs.py | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index f45adbdba..5068d4566 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -818,6 +818,25 @@ class TestBazaarArgs(TestCase):
+             ]
+         )
+ 
++    def test_update(self) -> None:
++        self.svn.update(self.dest, hide_url(self.url), self.rev_options, verbosity=1)
++        self.assert_call_args(
++            [
++                "bzr",
++                "update",
++            ]
++        )
++
++    def test_update_quiet(self) -> None:
++        self.svn.update(self.dest, hide_url(self.url), self.rev_options, verbosity=0)
++        self.assert_call_args(
++            [
++                "bzr",
++                "update",
++                "-q",
++            ]
++        )
++
+ 
+ class TestGitArgs(TestCase):
+     def setUp(self) -> None:
+-- 
+2.47.1
+
+
+From c185a8ef48580b15ddc7e0997154c09eddffb98a Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 8 May 2025 00:30:36 +0200
+Subject: [PATCH 13/18] test(vcs/git): init update args
+
+---
+ tests/unit/test_vcs.py | 98 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 98 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 5068d4566..0549b2f98 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -926,6 +926,104 @@ class TestGitArgs(TestCase):
+ 
+         update_submodules_mock.assert_called_with(self.dest, verbosity=0)
+ 
++    def test_update(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(1, 9)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.update(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=1
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "fetch",
++            "--tags",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[2][0][0] == [
++            "git",
++            "reset",
++            "--hard",
++            "HEAD",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=1)
++
++    def test_update_legacy(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(1, 8)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.update(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=1
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "fetch",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[2][0][0] == [
++            "git",
++            "reset",
++            "--hard",
++            "HEAD",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=1)
++
++    def test_update_legacy_quiet(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(1, 9)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.update(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=0
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "fetch",
++            "--tags",
++            "-q",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[2][0][0] == [
++            "git",
++            "reset",
++            "--hard",
++            "-q",
++            "HEAD",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=0)
++
++    def test_update_quiet(self) -> None:
++        with mock.patch.object(self.svn, "get_git_version", return_value=(1, 8)):
++            with mock.patch.object(
++                self.svn, "update_submodules"
++            ) as update_submodules_mock:
++                self.svn.update(
++                    self.dest, hide_url(self.url), self.rev_options, verbosity=0
++                )
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "git",
++            "fetch",
++            "-q",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[2][0][0] == [
++            "git",
++            "reset",
++            "--hard",
++            "-q",
++            "HEAD",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=0)
++
+ 
+ class TestMercurialArgs(TestCase):
+     def setUp(self) -> None:
+-- 
+2.47.1
+
+
+From ff1fa9ab8a5624b4abd0a86d017ec166f316343f Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 8 May 2025 00:35:53 +0200
+Subject: [PATCH 14/18] test(vcs/mercurial): init update args
+
+---
+ tests/unit/test_vcs.py | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 0549b2f98..260e03d28 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -1109,6 +1109,34 @@ class TestMercurialArgs(TestCase):
+             "--debug",
+         ]
+ 
++    def test_update(self) -> None:
++        self.svn.update(self.dest, hide_url(self.url), self.rev_options, verbosity=1)
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "hg",
++            "pull",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "hg",
++            "update",
++        ]
++
++    def test_update_quiet(self) -> None:
++        self.svn.update(self.dest, hide_url(self.url), self.rev_options, verbosity=0)
++
++        assert self.call_subprocess_mock.call_args_list[0][0][0] == [
++            "hg",
++            "pull",
++            "-q",
++        ]
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "hg",
++            "update",
++            "-q",
++        ]
++
+ 
+ class TestSubversionArgs(TestCase):
+     def setUp(self) -> None:
+-- 
+2.47.1
+
+
+From bcde671c45a60a34b711d9ce6a21de458ca130e7 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Tue, 29 Apr 2025 23:27:10 +0200
+Subject: [PATCH 15/18] feat(vcs): add verbosity argument to switching
+
+verbosity argument to the update method allows for controlling the supression of
+output by commands executed from this method. The argument should be a
+boolean value as the `-q` flag is binary, but it now is of type int as
+to not require a major refactor of the base class, should other inherited
+classes also implement the extension of verbosity.
+
+Implements: https://github.com/pypa/pip/issues/13329
+---
+ src/pip/_internal/vcs/bazaar.py         |  8 +++++++-
+ src/pip/_internal/vcs/git.py            | 16 ++++++++++++++--
+ src/pip/_internal/vcs/mercurial.py      | 15 +++++++++++++--
+ src/pip/_internal/vcs/subversion.py     |  8 +++++++-
+ src/pip/_internal/vcs/versioncontrol.py |  8 +++++++-
+ 5 files changed, 48 insertions(+), 7 deletions(-)
+
+diff --git a/src/pip/_internal/vcs/bazaar.py b/src/pip/_internal/vcs/bazaar.py
+index 700cc686b..3a8a21e62 100644
+--- a/src/pip/_internal/vcs/bazaar.py
++++ b/src/pip/_internal/vcs/bazaar.py
+@@ -55,7 +55,13 @@ class Bazaar(VersionControl):
+         )
+         self.run_command(cmd_args)
+ 
+-    def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def switch(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
+         self.run_command(make_command("switch", url), cwd=dest)
+ 
+     def update(
+diff --git a/src/pip/_internal/vcs/git.py b/src/pip/_internal/vcs/git.py
+index 880042a70..0a42347fe 100644
+--- a/src/pip/_internal/vcs/git.py
++++ b/src/pip/_internal/vcs/git.py
+@@ -333,12 +333,24 @@ class Git(VersionControl):
+         #: repo may contain submodules
+         self.update_submodules(dest, verbosity=verbosity)
+ 
+-    def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def switch(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
+         self.run_command(
+             make_command("config", "remote.origin.url", url),
+             cwd=dest,
+         )
+-        cmd_args = make_command("checkout", "-q", rev_options.to_args())
++
++        extra_flags = []
++
++        if verbosity <= 0:
++            extra_flags.append("-q")
++
++        cmd_args = make_command("checkout", *extra_flags, rev_options.to_args())
+         self.run_command(cmd_args, cwd=dest)
+ 
+         self.update_submodules(dest)
+diff --git a/src/pip/_internal/vcs/mercurial.py b/src/pip/_internal/vcs/mercurial.py
+index d1c1b70af..c87580316 100644
+--- a/src/pip/_internal/vcs/mercurial.py
++++ b/src/pip/_internal/vcs/mercurial.py
+@@ -58,9 +58,20 @@ class Mercurial(VersionControl):
+             cwd=dest,
+         )
+ 
+-    def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def switch(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
++        extra_flags = []
+         repo_config = os.path.join(dest, self.dirname, "hgrc")
+         config = configparser.RawConfigParser()
++
++        if verbosity <= 0:
++            extra_flags.append("-q")
++
+         try:
+             config.read(repo_config)
+             config.set("paths", "default", url.secret)
+@@ -69,7 +80,7 @@ class Mercurial(VersionControl):
+         except (OSError, configparser.NoSectionError) as exc:
+             logger.warning("Could not switch Mercurial repository to %s: %s", url, exc)
+         else:
+-            cmd_args = make_command("update", "-q", rev_options.to_args())
++            cmd_args = make_command("update", *extra_flags, rev_options.to_args())
+             self.run_command(cmd_args, cwd=dest)
+ 
+     def update(
+diff --git a/src/pip/_internal/vcs/subversion.py b/src/pip/_internal/vcs/subversion.py
+index 7a7c557b8..f245eed58 100644
+--- a/src/pip/_internal/vcs/subversion.py
++++ b/src/pip/_internal/vcs/subversion.py
+@@ -300,7 +300,13 @@ class Subversion(VersionControl):
+         )
+         self.run_command(cmd_args)
+ 
+-    def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def switch(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
+         cmd_args = make_command(
+             "switch",
+             self.get_remote_call_options(),
+diff --git a/src/pip/_internal/vcs/versioncontrol.py b/src/pip/_internal/vcs/versioncontrol.py
+index 9ced9924b..0a416b2ee 100644
+--- a/src/pip/_internal/vcs/versioncontrol.py
++++ b/src/pip/_internal/vcs/versioncontrol.py
+@@ -451,7 +451,13 @@ class VersionControl:
+         """
+         raise NotImplementedError
+ 
+-    def switch(self, dest: str, url: HiddenText, rev_options: RevOptions) -> None:
++    def switch(
++        self,
++        dest: str,
++        url: HiddenText,
++        rev_options: RevOptions,
++        verbosity: int = 0,
++    ) -> None:
+         """
+         Switch the repo at ``dest`` to point to ``URL``.
+ 
+-- 
+2.47.1
+
+
+From ee82ddc33e16d2e44a861606464346402de67e9d Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Tue, 29 Apr 2025 23:32:27 +0200
+Subject: [PATCH 16/18] feat(vcs): cascade verbosity for switching
+
+verbosity argument passed down to update_submodules callee, so that supression
+of command outputs is properly cascaded.
+
+Implements: https://github.com/pypa/pip/issues/13329
+---
+ src/pip/_internal/vcs/git.py            | 2 +-
+ src/pip/_internal/vcs/versioncontrol.py | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/pip/_internal/vcs/git.py b/src/pip/_internal/vcs/git.py
+index 0a42347fe..34fcf9713 100644
+--- a/src/pip/_internal/vcs/git.py
++++ b/src/pip/_internal/vcs/git.py
+@@ -353,7 +353,7 @@ class Git(VersionControl):
+         cmd_args = make_command("checkout", *extra_flags, rev_options.to_args())
+         self.run_command(cmd_args, cwd=dest)
+ 
+-        self.update_submodules(dest)
++        self.update_submodules(dest, verbosity=verbosity)
+ 
+     def update(
+         self,
+diff --git a/src/pip/_internal/vcs/versioncontrol.py b/src/pip/_internal/vcs/versioncontrol.py
+index 0a416b2ee..4e91ccd4c 100644
+--- a/src/pip/_internal/vcs/versioncontrol.py
++++ b/src/pip/_internal/vcs/versioncontrol.py
+@@ -579,7 +579,7 @@ class VersionControl:
+                 url,
+                 rev_display,
+             )
+-            self.switch(dest, url, rev_options)
++            self.switch(dest, url, rev_options, verbosity=verbosity)
+ 
+     def unpack(self, location: str, url: HiddenText, verbosity: int) -> None:
+         """
+-- 
+2.47.1
+
+
+From 7b2e40e782254dc1bec1d287b9b31d1877e51662 Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Thu, 8 May 2025 00:44:46 +0200
+Subject: [PATCH 17/18] test(vcs/git): init switch args
+
+---
+ tests/unit/test_vcs.py | 29 +++++++++++++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+
+diff --git a/tests/unit/test_vcs.py b/tests/unit/test_vcs.py
+index 260e03d28..3726591ea 100644
+--- a/tests/unit/test_vcs.py
++++ b/tests/unit/test_vcs.py
+@@ -926,6 +926,35 @@ class TestGitArgs(TestCase):
+ 
+         update_submodules_mock.assert_called_with(self.dest, verbosity=0)
+ 
++    def test_switch(self) -> None:
++        with mock.patch.object(self.svn, "update_submodules") as update_submodules_mock:
++            self.svn.switch(
++                self.dest, hide_url(self.url), self.rev_options, verbosity=1
++            )
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "git",
++            "checkout",
++            "HEAD",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=1)
++
++    def test_switch_quiet(self) -> None:
++        with mock.patch.object(self.svn, "update_submodules") as update_submodules_mock:
++            self.svn.switch(
++                self.dest, hide_url(self.url), self.rev_options, verbosity=0
++            )
++
++        assert self.call_subprocess_mock.call_args_list[1][0][0] == [
++            "git",
++            "checkout",
++            "-q",
++            "HEAD",
++        ]
++
++        update_submodules_mock.assert_called_with(self.dest, verbosity=0)
++
+     def test_update(self) -> None:
+         with mock.patch.object(self.svn, "get_git_version", return_value=(1, 9)):
+             with mock.patch.object(
+-- 
+2.47.1
+
+
+From 323fb8c7a3a9c4e18b6887ac732d747e43813c1e Mon Sep 17 00:00:00 2001
+From: "Rodney, Tiara" <tiara.rodney@administratrix.de>
+Date: Wed, 30 Apr 2025 01:08:21 +0200
+Subject: [PATCH 18/18] doc(news): add fragment for #13329
+
+---
+ news/13329.feature.rst | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 news/13329.feature.rst
+
+diff --git a/news/13329.feature.rst b/news/13329.feature.rst
+new file mode 100644
+index 000000000..fa678792d
+--- /dev/null
++++ b/news/13329.feature.rst
+@@ -0,0 +1 @@
++consistently pass verbosity flag to VCS module
+-- 
+2.47.1
+
