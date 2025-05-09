@@ -2,3 +2,6 @@
 	path = ongoing/mochajs/mocha
 	url = git@github.com:ByteB4rb1e/mocha.git
 	branch = feature/5049
+[submodule "ongoing/pradyunsg/sphinx-theme-builder"]
+	path = ongoing/pradyunsg/sphinx-theme-builder
+	url = git@github.com:ByteB4rb1e/sphinx-theme-builder.git
