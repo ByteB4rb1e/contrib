@@ -18,7 +18,9 @@ have backups in Proton Drive.
 
 It is a simple concept. For any contribution you make, you have to create a fork
 of the original repository anyway. You are doing so only if you have an issue
-id, which serves as the basis for creating a pull request.
+id, which serves as the basis for creating a pull request. In case you don't
+have an issue id, at least seperate different kind of contributions onto
+branches.
 
 > TODO: You wanted to do simple offline issue tracking, but you were hesitant as
 > you didn't quite have a concept yet on how to seperate to-dos belonging to
