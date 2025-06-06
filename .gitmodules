@@ -8,3 +8,6 @@
 [submodule "ongoing/squid-cache/squid"]
 	path = ongoing/squid-cache/squid
 	url = git@github.com:ByteB4rb1e/squid.git
+[submodule "ongoing/msys2/MINGW-packages"]
+	path = ongoing/msys2/MINGW-packages
+	url = git@github.com:ByteB4rb1e/MINGW-packages.git
